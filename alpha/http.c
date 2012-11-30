@@ -19,7 +19,8 @@ struct _internal_http_packet{
 };
 
 http_header *http_get_headers(http_packet http){
-	if(!http || !http->headers){
+
+	if(http == NULL || http->headers == NULL){
 		return NULL;
 	}
 	
@@ -142,12 +143,12 @@ int http_parse_packet(char *tcp_payload, int length, http_packet *http_t){
 	char *cadena = (char*) calloc(length+1, sizeof(char));
 	strncpy(cadena, tcp_payload, length);
 	tcp_payload = cadena;
-	
+
 	if(http->op != RESPONSE){
 		sscanf(tcp_payload, "%32s %2048s %32s\r\nHost: %256s\r\n", http->method, http->uri, http->version, http->host);
 	}else{
+		strcpy(http->method, "RESPONSE");
 		sscanf(tcp_payload, "%32s %d %[^\n]\r\n", http->version, &http->response_code, http->response_msg);
-		
 		char *hdr = strstr(tcp_payload, "\r\n");
 		if(hdr == NULL){ 
 			return -1;

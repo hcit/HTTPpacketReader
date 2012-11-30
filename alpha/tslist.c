@@ -6,6 +6,7 @@
 
 void free_tslist(tslist_node *list){
 	
+
 	if(list == NULL){
 		return;
 	}
@@ -29,7 +30,8 @@ void add_tsnode(tslist_node *list, struct tcp_stream *a_tcp, struct timeval last
 }
 
 struct timeval* find_ts(tslist_node* list, struct tcp_stream *a_tcp){
-	if(list == NULL || a_tcp == NULL)
+
+	if(list == NULL || a_tcp == NULL || list->a_tcp == NULL)
 		return NULL;
 
 	while(list){
