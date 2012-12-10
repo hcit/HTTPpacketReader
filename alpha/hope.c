@@ -167,16 +167,16 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 		http_packet http = NULL;
 		
 		if(hlf_client->count_new){ //RESPONSE
-			fprintf(stderr, COLOUR_B_YELLOW "\n|%s - (%u, %u, %u, %d)|\n" COLOUR_NONE, received_time, hlf_client->seq, hlf_client->ack_seq, hlf_client->curr_ts, hlf_client->count_new);
-			fprintf(stderr, "|");
-			write(2, hlf_client->data, 130);
-			fprintf(stderr, "|\n" );
+			// fprintf(stderr, COLOUR_B_YELLOW "\n|%s - (%u, %u, %u, %d)|\n" COLOUR_NONE, received_time, hlf_client->seq, hlf_client->ack_seq, hlf_client->curr_ts, hlf_client->count_new);
+			// fprintf(stderr, "|");
+			// write(2, hlf_client->data, 130);
+			// fprintf(stderr, "|\n" );
 			http_parse_packet(hlf_client->data, hlf_client->count_new, &http);
 		}else if(hlf_server->count_new){ //PETICION
-			fprintf(stderr, COLOUR_B_GREEN "\n|%s - (%u, %u, %u, %d)|\n" COLOUR_NONE, received_time, hlf_server->seq, hlf_server->ack_seq, hlf_server->curr_ts, hlf_server->count_new);
-			fprintf(stderr, "|");
-			write(2, hlf_server->data, 130);
-			fprintf(stderr, "|\n" );
+			// fprintf(stderr, COLOUR_B_GREEN "\n|%s - (%u, %u, %u, %d)|\n" COLOUR_NONE, received_time, hlf_server->seq, hlf_server->ack_seq, hlf_server->curr_ts, hlf_server->count_new);
+			// fprintf(stderr, "|");
+			// write(2, hlf_server->data, 130);
+			// fprintf(stderr, "|\n" );
 			http_parse_packet(hlf_server->data, hlf_server->count_new, &http);
 		}
 
@@ -218,6 +218,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
 				fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
 				fprintf(STREAM_OUT, "\t%s\n", received_time);
+				free(hashkey);
 				free(received_time);
 				return;
 			}
@@ -291,11 +292,12 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				peticion->response = (char *) realloc(peticion->response, peticion->response_bytes+hlf_client->count_new);
 				strncpy(peticion->response+peticion->response_bytes, hlf_client->data, hlf_client->count_new);
 				peticion->response_bytes += hlf_client->count_new;
-			}else{ //NO HAY ENTRADA EN LA TABLA HASH
-				fprintf(STREAM_OUT, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
-				fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-				fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-				fprintf(STREAM_OUT, "\t%s\n", received_time);
+			}else{ //NO HAY ENTRADA EN LA TABLA HASH => No es un trozo de la respuesta
+				// fprintf(STREAM_OUT, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
+				// fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+				// fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+				// fprintf(STREAM_OUT, "\t%s\n", received_time);
+				free(hashkey);
 				free(received_time);
 				return;
 			}
@@ -356,10 +358,10 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 		http_free_packet(&http);
 		//FIN DE BLOQUE TCP DATA
 	}else{
-		fprintf(STREAM_OUT, COLOUR_RED "Que es esto?" COLOUR_NONE);
-		fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-		fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-		fprintf(STREAM_OUT, "\t%s\n", received_time);
+		// fprintf(STREAM_OUT, COLOUR_RED "Que es esto?\t" COLOUR_NONE);
+		// fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+		// fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+		// fprintf(STREAM_OUT, "\t%s\n", received_time);
 	}
 	
 	//fprintf(STREAM_OUT, "%s\n", buf);
