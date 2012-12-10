@@ -136,6 +136,13 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 		fprintf(STREAM_OUT, "%s\n", adres(a_tcp->addr, "\t"));
 	}
 	
+/***      PACKETES TCP CON PAYLOAD
+ *
+ *    |¯¯¯¯\    /¯¯¯¯¯| |¯¯¯¯¯|   /¯¯¯¯¯| 
+ *    |  x  \  /  !   | |     |  /  !   | 
+ *    |_____/ /__/¯|__'  ¯|_|¯  /__/¯|__| 
+ */
+
 	//LLEGA PAQUETE TCP CON PAYLOAD
 	if(a_tcp->nids_state == NIDS_DATA) {
 
@@ -147,6 +154,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			http_parse_packet(hlf_server->data, hlf_server->count_new, &http);
 		}
 
+		//LLEGA PAQUETE TCP CON PAYLOAD
 		if(hlf_client->count_new && http_get_op(http) == RESPONSE){ //RESPONSE
 			
 			char *hashkey = hash_key(a_tcp);

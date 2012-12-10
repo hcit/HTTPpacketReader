@@ -20,6 +20,8 @@
 typedef struct _intercambio{
 	char   *request;
 	char   *response;
+	int request_bytes;
+	int response_bytes;
 	int n_request_pkt;
 	int n_response_pkt;
 	struct timeval ts_request;
@@ -129,47 +131,58 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 	hlf_server = &a_tcp->server;
 	hlf_client = &a_tcp->client;
 
-	if(a_tcp->nids_state == NIDS_EXITING) {
-		//fprintf(STREAM_OUT, COLOUR_RED "\nNIDS is closing!\n" COLOUR_NONE);
-	}
-	
+	// if(a_tcp->nids_state == NIDS_EXITING) {
+	// 	fprintf(STREAM_OUT, COLOUR_RED "\nNIDS is closing!\n" COLOUR_NONE);
+	// }else 
+
 	if(a_tcp->nids_state == NIDS_JUST_EST) {
 		// connexion described by a_tcp is established
 		// here we decide, if we wish to follow this stream
 		// sample condition: if (a_tcp->addr.dest!=23) return;
 		// in this simple app we follow each stream, so..
-      a_tcp->client.collect++; // we want data received by a client
-      a_tcp->server.collect++; // and by a server, too
+      	a_tcp->client.collect++; // we want data received by a client
+      	a_tcp->server.collect++; // and by a server, too
 		fprintf(STREAM_OUT, COLOUR_B_GREEN "#%d\tSYN\t" COLOUR_NONE, packets);
 		fprintf(STREAM_OUT, "%s", adres(a_tcp->addr, "\t"));
 		fprintf(STREAM_OUT, "\t%s\n", received_time);
-	}
-
-	if(a_tcp->nids_state == NIDS_RESET) {
+	}else if(a_tcp->nids_state == NIDS_RESET) {
 		fprintf(STREAM_OUT, COLOUR_B_YELLOW "#%d\tRST\t" COLOUR_NONE, packets);
 		fprintf(STREAM_OUT, "%s", adres(a_tcp->addr, "\t"));
 		fprintf(STREAM_OUT, "\t%s\n", received_time);
-	}
-	
-	if(a_tcp->nids_state == NIDS_CLOSE || a_tcp->nids_state == NIDS_EXITING) {
+	}else if(a_tcp->nids_state == NIDS_CLOSE || a_tcp->nids_state == NIDS_EXITING) {
 
 		fprintf(STREAM_OUT, COLOUR_B_RED "#%d\tFIN\t" COLOUR_NONE, packets);
 		fprintf(STREAM_OUT, "%s\n", adres(a_tcp->addr, "\t"));
-	}
-	
-	//LLEGA PAQUETE TCP CON PAYLOAD
-	if(a_tcp->nids_state == NIDS_DATA) {
+
+ 	//LLEGA PAQUETE TCP CON PAYLOAD
+	}else if(a_tcp->nids_state == NIDS_DATA) { 	
+
+/***      PACKETES TCP CON PAYLOAD
+ *
+ *    |¯¯¯¯\    /¯¯¯¯¯| |¯¯¯¯¯|   /¯¯¯¯¯| 
+ *    |  x  \  /  !   | |     |  /  !   | 
+ *    |_____/ /__/¯|__'  ¯|_|¯  /__/¯|__| 
+ */
 
 		http_packet http = NULL;
 		
 		if(hlf_client->count_new){ //RESPONSE
+			fprintf(stderr, COLOUR_B_YELLOW "\n|%s - (%u, %u, %u, %d)|\n" COLOUR_NONE, received_time, hlf_client->seq, hlf_client->ack_seq, hlf_client->curr_ts, hlf_client->count_new);
+			fprintf(stderr, "|");
+			write(2, hlf_client->data, 130);
+			fprintf(stderr, "|\n" );
 			http_parse_packet(hlf_client->data, hlf_client->count_new, &http);
 		}else if(hlf_server->count_new){ //PETICION
+			fprintf(stderr, COLOUR_B_GREEN "\n|%s - (%u, %u, %u, %d)|\n" COLOUR_NONE, received_time, hlf_server->seq, hlf_server->ack_seq, hlf_server->curr_ts, hlf_server->count_new);
+			fprintf(stderr, "|");
+			write(2, hlf_server->data, 130);
+			fprintf(stderr, "|\n" );
 			http_parse_packet(hlf_server->data, hlf_server->count_new, &http);
 		}
 
+		//RESPUESTA Y QUE COINCIDA QUE ES PRIMER PAQUETE DE RESPUESTA
 		if(hlf_client->count_new && http_get_op(http) == RESPONSE){ //RESPONSE
-			
+
 			char *hashkey = hash_key(a_tcp);
 			hash_value *hashvalue = NULL;
 			gpointer gkey = NULL, gval = NULL;
@@ -178,15 +191,29 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			g_hash_table_lookup_extended(table, hashkey, &gkey, &gval);
 			hashvalue = (hash_value *) gval;
 			
+			//Si hay una entrada en la tabla hash
 			if(hashvalue != NULL){
-				peticion = hashvalue->last;
-				if(hlf_client->offset == 0)
-					peticion->ts_response = nids_last_pcap_header->ts;
-				peticion->response = (char *) realloc(peticion->response, hlf_client->offset+hlf_client->count_new);
-				strncpy(peticion->response+hlf_client->offset, hlf_client->data, hlf_client->count_new);
-				peticion->n_response_pkt = packets;
+				//peticion = hashvalue->last;
 				hashvalue->n_respuestas++;
-			}else{
+				//Obtener el par peticion/respuesta correspondiente
+				peticion = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
+				if(peticion==NULL){
+					fprintf(STREAM_OUT, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
+					fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+					fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+					fprintf(STREAM_OUT, "\t%s\n", received_time);
+					free(hashkey);
+					free(received_time);
+					return;
+				}
+				//Copiar timestamp
+				peticion->ts_response = nids_last_pcap_header->ts;
+				//copiar los datos de la respuesta a la estructura
+				peticion->response = (char *) realloc(peticion->response, hlf_client->count_new);
+				strncpy(peticion->response, hlf_client->data, hlf_client->count_new);
+				peticion->n_response_pkt = packets;
+				peticion->response_bytes = hlf_client->count_new;
+			}else{ //NO HAY ENTRADA EN LA TABLA HASH
 				fprintf(STREAM_OUT, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
 				fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
 				fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
@@ -199,31 +226,20 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			g_hash_table_insert(table, gkey, hashvalue);
 			free(hashkey);
 
+			//Datos de la peticion
 			http_packet http_request = NULL;
-			intercambio *i = NULL;
 			
-			i = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
-		
-			if(i==NULL){
-				fprintf(STREAM_OUT, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
-				fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-				fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-				fprintf(STREAM_OUT, "\t%s\n", received_time);
-				free(received_time);
-				return;
-			}
-			
-			http_parse_packet(i->request, strlen(i->request), &http_request);
+			http_parse_packet(peticion->request, strlen(peticion->request), &http_request);
 
-			//REQUEST TIME
-			struct timeval time_last = i->ts_request;
+			//Preparacion para imprimir los datos y tiempos junto con el RTT
+			struct timeval time_last = peticion->ts_request;
 			struct timeval res;
 			timersub(&nids_last_pcap_header->ts, &time_last, &res);
 
 			char *received_rq_time = timeval_to_char(time_last);
 
 			fprintf(STREAM_OUT, "———————————————————————————————————————————————————————————————————————————————————————————————————————————\n");
-			fprintf(STREAM_OUT, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, i->n_request_pkt, http_get_method(http_request));
+			fprintf(STREAM_OUT, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, peticion->n_request_pkt, http_get_method(http_request));
 			fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
 			fprintf(STREAM_OUT, "%s:%u", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
 			fprintf(STREAM_OUT, "\t%s\n", received_rq_time);
@@ -238,7 +254,57 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 
 			free(received_rq_time);
 			http_free_packet(&http_request);
+
+		}else if(hlf_client->count_new){ 
+		//Paquete TCP con datos. Es la continuacion a una respuesta anterior
+		//Se concatenan los datos
+
+			//Comprobar que la entrada en la tabla hash existe
+			char *hashkey = hash_key(a_tcp);
+			hash_value *hashvalue = NULL;
+			gpointer gkey = NULL, gval = NULL;
+			intercambio *peticion = NULL;
+						
+			g_hash_table_lookup_extended(table, hashkey, &gkey, &gval);
+			hashvalue = (hash_value *) gval;
 			
+			//Si hay una entrada en la tabla hash
+			if(hashvalue != NULL){
+				//Obtener el par peticion/respuesta correspondiente
+				peticion = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
+				if(peticion==NULL){
+					fprintf(STREAM_OUT, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
+					fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+					fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+					fprintf(STREAM_OUT, "\t%s\n", received_time);
+					free(hashkey);
+					free(received_time);
+					return;
+				}
+
+				//Comprobaciones
+				if(peticion->request == NULL || peticion->response_bytes == 0){
+					return;
+				}
+
+				//Concatenar los datos
+				peticion->response = (char *) realloc(peticion->response, peticion->response_bytes+hlf_client->count_new);
+				strncpy(peticion->response+peticion->response_bytes, hlf_client->data, hlf_client->count_new);
+				peticion->response_bytes += hlf_client->count_new;
+			}else{ //NO HAY ENTRADA EN LA TABLA HASH
+				fprintf(STREAM_OUT, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
+				fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+				fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+				fprintf(STREAM_OUT, "\t%s\n", received_time);
+				free(received_time);
+				return;
+			}
+			
+			g_hash_table_steal(table, hashkey);			
+			g_hash_table_insert(table, gkey, hashvalue);
+			free(hashkey);
+
+
 		}else if(hlf_server->count_new && http_get_op(http) == GET){ //PETICION
 			
 			//fprintf(STREAM_OUT, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, packets, http_get_method(http));
@@ -250,6 +316,8 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			g_hash_table_lookup_extended(table, hashkey, &gkey, &gval);
 			hashvalue = (hash_value *) gval;
 			intercambio *peticion = NULL;
+
+			//Se comprueba si existe entrada en la tabla hash que de la misma cuadrupla
 			if(hashvalue == NULL){ //si no existe creo una nueva entrada en la tabla;
 				hashvalue = (hash_value *) calloc(sizeof(hash_value), 1);
 				hashvalue->n_peticiones = 1;
@@ -257,17 +325,23 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				hashvalue->peticiones = (intercambio *) calloc(sizeof(intercambio), 1);
 				hashvalue->last = hashvalue->peticiones;
 			}else{ //si existe, añado un nuevo nodo a la lista enlazada "peticiones"
-				g_hash_table_steal(table, hashkey);		
+				
+				//Removes a key and its associated value from a GHashTable 
+				//without calling the key and value destroy functions.
+				g_hash_table_steal(table, hashkey); 
 				hashvalue->last->next = (intercambio *) calloc(sizeof(intercambio), 1);
 				hashvalue->n_peticiones++;
 				hashvalue->last = hashvalue->last->next;
 			}
-			
+
 			peticion = hashvalue->last;
 			peticion->ts_request = nids_last_pcap_header->ts;
+			//Se copian los bytes de datos que han llegado
 			peticion->request = (char *) calloc(sizeof(char), hlf_server->count_new);
 			peticion->response = NULL;
+			//El numero de paquete
 			peticion->n_request_pkt = packets;
+			peticion->request_bytes = hlf_server->count_new;
 			strncpy(peticion->request, hlf_server->data, hlf_server->count_new);
 
 			g_hash_table_insert(table, hashkey, hashvalue);
@@ -277,8 +351,15 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			
 			strcpy (buf, adres (a_tcp->addr, "==>")); // we put conn params into buf
 
-		}//FIN DE BLOQUE TCP_DATA
+		}//FIN DE BLOQUE TCP DATA PETICION
+		//Liberar paquete http
 		http_free_packet(&http);
+		//FIN DE BLOQUE TCP DATA
+	}else{
+		fprintf(STREAM_OUT, COLOUR_RED "Que es esto?" COLOUR_NONE);
+		fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+		fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+		fprintf(STREAM_OUT, "\t%s\n", received_time);
 	}
 	
 	//fprintf(STREAM_OUT, "%s\n", buf);

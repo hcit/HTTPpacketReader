@@ -10,6 +10,8 @@ See the file COPYING for license details.
 #include <netinet/in_systm.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
 #include <stdio.h>
 #include "nids.h"
 
@@ -28,6 +30,37 @@ adres (struct tuple4 addr)
   sprintf (buf + strlen (buf), ",%i", addr.dest);
   return buf;
 }
+
+char *timeval_to_char(struct timeval ts){
+
+  char time_buf[64] = {0};
+  char *ret = (char *) calloc(sizeof(char), 1024);
+
+  struct tm *my_time = NULL;
+  time_t nowtime;
+  nowtime = ts.tv_sec;
+  my_time = localtime(&nowtime);
+
+  strftime(time_buf, 1024, "%Y-%m-%d %H:%M:%S", my_time);
+  snprintf(ret, 1024, "%s %lld", time_buf, (long long) ts.tv_usec);
+
+  return ret;
+}
+
+void ip_func(struct ip * a_packet, int len){
+
+   char *received_time = NULL;
+   received_time = timeval_to_char(nids_last_pcap_header->ts);
+  if(received_time == NULL){
+    return;
+  }
+
+  fprintf(stdout, "%s\n", received_time);
+  free(received_time);
+
+ return;
+}
+
 
 void
 tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed)
@@ -121,8 +154,14 @@ main (int argc, char *argv[])
   	fprintf(stderr,"%s\n",nids_errbuf);
   	exit(1);
   }
-  nids_register_tcp (tcp_callback);
-  nids_run ();
+
+  nids_register_ip(ip_func);
+  nids_run();
+  nids_unregister_ip(ip_func);
+
+ // nids_register_tcp (tcp_callback);
+ // nids_run ();
+
   return 0;
 }
 
