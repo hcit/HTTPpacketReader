@@ -15,8 +15,6 @@
 #include "http.h"
 #include <glib.h>
 
-#define STREAM_OUT stdout
-
 typedef struct _intercambio{
 	char   *request;
 	char   *response;
@@ -27,6 +25,7 @@ typedef struct _intercambio{
 	struct timeval ts_request;
 	struct timeval ts_response;
 	struct _intercambio *next;
+	struct _intercambio *prev;
 } intercambio;
 
 typedef struct {
@@ -41,7 +40,10 @@ typedef struct {
  char *hash_key(struct tcp_stream *a_tcp);
  char *timeval_to_char(struct timeval ts);
 
- 
+FILE *stream_out;
+
+static double microsecs = 0;
+static long tiempos = 0;
 
 static int packets = 0;
 GHashTable *table = NULL;
@@ -55,9 +57,9 @@ GHashTable *table = NULL;
 
 void how_to_use(char *app_name){
 	
-	fprintf(STREAM_OUT, "\nHOW TO USE\n%s <filename> \"pcap_filter\"\n\nIMPORTANT: Please write the filter in quotes (\"\")\n", app_name);
+	fprintf(stream_out, "\nHOW TO USE\n%s <filename> \"pcap_filter\"\n\nIMPORTANT: Please write the filter in quotes (\"\")\n", app_name);
 	
-	fprintf(STREAM_OUT, "\nBe aware that this applies to the link-layer.\nSo filters like \"tcp dst port 23\" will NOT correctly handle fragmented traffic.\nOne should add \"or (ip[6:2] & 0x1fff != 0)\" to process all fragmented packets.\n\n");
+	fprintf(stream_out, "\nBe aware that this applies to the link-layer.\nSo filters like \"tcp dst port 23\" will NOT correctly handle fragmented traffic.\nOne should add \"or (ip[6:2] & 0x1fff != 0)\" to process all fragmented packets.\n\n");
 	
 	return;
 }
@@ -70,11 +72,11 @@ char *timeval_to_char(struct timeval ts){
 	struct tm *my_time = NULL;
 	time_t nowtime;
 	nowtime = ts.tv_sec;
-	my_time = localtime(&nowtime);
-
-	strftime(time_buf, 1024, "%Y-%m-%d %H:%M:%S", my_time);
-	snprintf(ret, 1024, "%s %lld", time_buf, (long long) ts.tv_usec);
-
+	//UTC TIME
+	my_time = gmtime(&nowtime);
+	strftime(time_buf, 64, "%Y-%m-%d %H:%M:%S", my_time);
+	snprintf(ret, 1024, "%s %ld", time_buf, ts.tv_usec);
+	
 	return ret;
 }
 
@@ -117,6 +119,11 @@ intercambio *get_n_intercambio(intercambio *i, int n, int t){
 
 void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 
+	struct timeval t, t2;
+	float microsegundos = 0;
+	gettimeofday(&t, NULL);
+
+
 	char buf[1024] = {0};
 	char *received_time = NULL;
 	struct half_stream *hlf_server=NULL, *hlf_client=NULL;
@@ -132,7 +139,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 	hlf_client = &a_tcp->client;
 
 	// if(a_tcp->nids_state == NIDS_EXITING) {
-	// 	fprintf(STREAM_OUT, COLOUR_RED "\nNIDS is closing!\n" COLOUR_NONE);
+	// 	fprintf(stream_out, COLOUR_RED "\nNIDS is closing!\n" COLOUR_NONE);
 	// }else 
 
 	if(a_tcp->nids_state == NIDS_JUST_EST) {
@@ -142,17 +149,17 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 		// in this simple app we follow each stream, so..
       	a_tcp->client.collect++; // we want data received by a client
       	a_tcp->server.collect++; // and by a server, too
-		fprintf(STREAM_OUT, COLOUR_B_GREEN "#%d\tSYN\t" COLOUR_NONE, packets);
-		fprintf(STREAM_OUT, "%s", adres(a_tcp->addr, "\t"));
-		fprintf(STREAM_OUT, "\t%s\n", received_time);
+		fprintf(stream_out, COLOUR_B_GREEN "#%d\tSYN\t" COLOUR_NONE, packets);
+		fprintf(stream_out, "%s", adres(a_tcp->addr, "\t"));
+		fprintf(stream_out, "\t%s\n", received_time);
 	}else if(a_tcp->nids_state == NIDS_RESET) {
-		fprintf(STREAM_OUT, COLOUR_B_YELLOW "#%d\tRST\t" COLOUR_NONE, packets);
-		fprintf(STREAM_OUT, "%s", adres(a_tcp->addr, "\t"));
-		fprintf(STREAM_OUT, "\t%s\n", received_time);
+		fprintf(stream_out, COLOUR_B_YELLOW "#%d\tRST\t" COLOUR_NONE, packets);
+		fprintf(stream_out, "%s", adres(a_tcp->addr, "\t"));
+		fprintf(stream_out, "\t%s\n", received_time);
 	}else if(a_tcp->nids_state == NIDS_CLOSE || a_tcp->nids_state == NIDS_EXITING) {
 
-		fprintf(STREAM_OUT, COLOUR_B_RED "#%d\tFIN\t" COLOUR_NONE, packets);
-		fprintf(STREAM_OUT, "%s\n", adres(a_tcp->addr, "\t"));
+		fprintf(stream_out, COLOUR_B_RED "#%d\tFIN\t" COLOUR_NONE, packets);
+		fprintf(stream_out, "%s\n", adres(a_tcp->addr, "\t"));
 
  	//LLEGA PAQUETE TCP CON PAYLOAD
 	}else if(a_tcp->nids_state == NIDS_DATA) { 	
@@ -198,10 +205,10 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				//Obtener el par peticion/respuesta correspondiente
 				peticion = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
 				if(peticion==NULL){
-					fprintf(STREAM_OUT, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
-					fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-					fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-					fprintf(STREAM_OUT, "\t%s\n", received_time);
+					fprintf(stream_out, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
+					fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+					fprintf(stream_out, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+					fprintf(stream_out, "\t%s\n", received_time);
 					free(hashkey);
 					free(received_time);
 					return;
@@ -214,10 +221,10 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				peticion->n_response_pkt = packets;
 				peticion->response_bytes = hlf_client->count_new;
 			}else{ //NO HAY ENTRADA EN LA TABLA HASH
-				fprintf(STREAM_OUT, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
-				fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-				fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-				fprintf(STREAM_OUT, "\t%s\n", received_time);
+				fprintf(stream_out, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
+				fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+				fprintf(stream_out, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+				fprintf(stream_out, "\t%s\n", received_time);
 				free(hashkey);
 				free(received_time);
 				return;
@@ -239,19 +246,25 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 
 			char *received_rq_time = timeval_to_char(time_last);
 
-			fprintf(STREAM_OUT, "———————————————————————————————————————————————————————————————————————————————————————————————————————————\n");
-			fprintf(STREAM_OUT, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, peticion->n_request_pkt, http_get_method(http_request));
-			fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-			fprintf(STREAM_OUT, "%s:%u", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-			fprintf(STREAM_OUT, "\t%s\n", received_rq_time);
+			fprintf(stream_out, "———————————————————————————————————————————————————————————————————————————————————————————————————————\n");
+			fprintf(stream_out, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, peticion->n_request_pkt, http_get_method(http_request));
+			fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+			fprintf(stream_out, "%s:%u", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+			fprintf(stream_out, "\t%s\n", received_rq_time);
 
-			fprintf(STREAM_OUT, COLOUR_B_BLUE "#%d\tDATA\t" COLOUR_NONE, packets);
-			fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-			fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-			fprintf(STREAM_OUT, "\t%s\t%ld.%ld\n", received_time, res.tv_sec, res.tv_usec);
-			fprintf(STREAM_OUT, "———————————————————————————————————————————————————————————————————————————————————————————————————————————\n");
+			fprintf(stream_out, COLOUR_B_BLUE "#%d\tDATA\t" COLOUR_NONE, packets);
+			fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+			fprintf(stream_out, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+			fprintf(stream_out, "\t%s\t%ld.%ld\n", received_time, res.tv_sec, res.tv_usec);
+			fprintf(stream_out, "———————————————————————————————————————————————————————————————————————————————————————————————————————\n");
 
 			strcpy (buf, adres (a_tcp->addr, "<==")); // we put conn params into buf
+
+			if(peticion->prev != NULL){
+				if(timercmp(&peticion->ts_response, &peticion->prev->ts_response, ==)){
+					fprintf(stream_out, COLOUR_B_RED "Possible packet reordering due to an unordered response.\n" COLOUR_NONE);
+				}
+			}
 
 			free(received_rq_time);
 			http_free_packet(&http_request);
@@ -274,10 +287,10 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				//Obtener el par peticion/respuesta correspondiente
 				peticion = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
 				if(peticion==NULL){
-					fprintf(STREAM_OUT, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
-					fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-					fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-					fprintf(STREAM_OUT, "\t%s\n", received_time);
+					fprintf(stream_out, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
+					fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+					fprintf(stream_out, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+					fprintf(stream_out, "\t%s\n", received_time);
 					free(hashkey);
 					free(received_time);
 					return;
@@ -293,10 +306,10 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				strncpy(peticion->response+peticion->response_bytes, hlf_client->data, hlf_client->count_new);
 				peticion->response_bytes += hlf_client->count_new;
 			}else{ //NO HAY ENTRADA EN LA TABLA HASH => No es un trozo de la respuesta
-				// fprintf(STREAM_OUT, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
-				// fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-				// fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-				// fprintf(STREAM_OUT, "\t%s\n", received_time);
+				// fprintf(stream_out, COLOUR_B_RED "RESPONSE WITHOUT REQUEST!! \t%d\t" COLOUR_NONE, packets);
+				// fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+				// fprintf(stream_out, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+				// fprintf(stream_out, "\t%s\n", received_time);
 				free(hashkey);
 				free(received_time);
 				return;
@@ -306,10 +319,10 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			g_hash_table_insert(table, gkey, hashvalue);
 			free(hashkey);
 
-
+	 	//PETICION
 		}else if(hlf_server->count_new && http_get_op(http) == GET){ //PETICION
 			
-			//fprintf(STREAM_OUT, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, packets, http_get_method(http));
+			//fprintf(stream_out, COLOUR_B_BLUE "#%d\t%s\t" COLOUR_NONE, packets, http_get_method(http));
 
 			//HASH TABLE
 			char *hashkey = hash_key(a_tcp);
@@ -326,14 +339,18 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				hashvalue->n_respuestas = 0;
 				hashvalue->peticiones = (intercambio *) calloc(sizeof(intercambio), 1);
 				hashvalue->last = hashvalue->peticiones;
+				hashvalue->peticiones->prev = NULL;
+				hashvalue->peticiones->next = NULL;
 			}else{ //si existe, añado un nuevo nodo a la lista enlazada "peticiones"
 				
 				//Removes a key and its associated value from a GHashTable 
 				//without calling the key and value destroy functions.
 				g_hash_table_steal(table, hashkey); 
-				hashvalue->last->next = (intercambio *) calloc(sizeof(intercambio), 1);
 				hashvalue->n_peticiones++;
+				hashvalue->last->next = (intercambio *) calloc(sizeof(intercambio), 1);
+				hashvalue->last->next->prev = hashvalue->last;
 				hashvalue->last = hashvalue->last->next;
+
 			}
 
 			peticion = hashvalue->last;
@@ -358,16 +375,25 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 		http_free_packet(&http);
 		//FIN DE BLOQUE TCP DATA
 	}else{
-		// fprintf(STREAM_OUT, COLOUR_RED "Que es esto?\t" COLOUR_NONE);
-		// fprintf(STREAM_OUT, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
-		// fprintf(STREAM_OUT, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
-		// fprintf(STREAM_OUT, "\t%s\n", received_time);
+		// fprintf(stream_out, COLOUR_RED "Que es esto?\t" COLOUR_NONE);
+		// fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
+		// fprintf(stream_out, "%s:%u ", int_ntoa (a_tcp->addr.saddr), a_tcp->addr.source);
+		// fprintf(stream_out, "\t%s\n", received_time);
 	}
 	
-	//fprintf(STREAM_OUT, "%s\n", buf);
+	//fprintf(stream_out, "%s\n", buf);
 	free(received_time);
 	//nids_discard(a_tcp, 0);
 	
+	//if(a_tcp->nids_state == NIDS_DATA){
+	
+		gettimeofday(&t2, NULL);
+
+		microsegundos = ((t2.tv_usec - t.tv_usec)  + ((t2.tv_sec - t.tv_sec) * 1000000.0f));
+		microsecs += microsegundos;
+		tiempos++;
+	//}
+
   return;
 }
 
@@ -378,21 +404,26 @@ int main(int argc, char *argv[]){
 	nids_params.filename = argv[1];
 	nids_params.pcap_filter = argv[2];
 	nids_params.device = NULL; 
+	stream_out = stdout;
+	FILE *file_out = NULL;
 
-  if(argc!=3){
+  if(argc<3){
   	how_to_use(argv[0]);
   	return 1;
+  }if(argc==4){
+  	file_out = fopen(argv[3], "w");
+  	stream_out = file_out;
   }
+
 
   table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, funcionLiberacion);
   if(table == NULL){
-  	fprintf(STREAM_OUT, "Error al crear tabla hash.");
+  	fprintf(stream_out, "Error al crear tabla hash.");
   	return -1;
   }
 
-
   if (!nids_init ()){
-  	fprintf(STREAM_OUT,"Error nids_init. %s\n",nids_errbuf);
+  	fprintf(stream_out,"Error nids_init. %s\n",nids_errbuf);
 	g_hash_table_destroy(table);
   	return -2;
   }
@@ -406,6 +437,12 @@ int main(int argc, char *argv[]){
   nids_unregister_tcp(tcp_callback);
 
   g_hash_table_destroy(table);
+
+  fprintf(stderr, "Tiempo medio por callack: %lf\nTiempo total callbacks: %lf\nNumero de llamadas al callback: %ld\n", ((double)microsecs/(double)tiempos), microsecs, tiempos);
+  
+  if(file_out != NULL){
+  	fclose(file_out);
+  }
 
   return 0;
 
@@ -455,6 +492,8 @@ void liberaPeticion(intercambio *peticion){
 	liberaPeticion(peticion->next);
 
 	free(peticion);
+
+
 
 	return;
 }
