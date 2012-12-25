@@ -1,4 +1,4 @@
-CC = gcc -g -Wall 
+CC = gcc -O2 -g -Wall 
 #CFLAGS		= -g -O2 -D_BSD_SOURCE
 COLOURFLAGS = -D _colours
 LDFLAGS		= 

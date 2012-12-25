@@ -31,6 +31,7 @@ typedef struct _intercambio{
 typedef struct {
     intercambio *peticiones;
     intercambio *last;
+    intercambio **array;
     int n_peticiones;
     int n_respuestas;
 } hash_value;
@@ -41,9 +42,6 @@ typedef struct {
  char *timeval_to_char(struct timeval ts);
 
 FILE *stream_out;
-
-static double microsecs = 0;
-static long tiempos = 0;
 
 static int packets = 0;
 GHashTable *table = NULL;
@@ -69,11 +67,11 @@ char *timeval_to_char(struct timeval ts){
 	char time_buf[64] = {0};
 	char *ret = (char *) calloc(sizeof(char), 1024);
 
-	struct tm *my_time = NULL;
 	time_t nowtime;
 	nowtime = ts.tv_sec;
+
 	//UTC TIME
-	my_time = gmtime(&nowtime);
+	struct tm *my_time = gmtime(&nowtime);
 	strftime(time_buf, 64, "%Y-%m-%d %H:%M:%S", my_time);
 	snprintf(ret, 1024, "%s %ld", time_buf, ts.tv_usec);
 	
@@ -96,33 +94,17 @@ char * adres (struct tuple4 addr, char *direction){
 // 	return;
 // }
 
-intercambio *get_n_intercambio(intercambio *i, int n, int t){
+intercambio *get_n_intercambio(intercambio **i, int n, int t){
 
 	if (i == NULL || n > t || n<=0){
 		return NULL;
 	}
 
-	intercambio *aux = i;
-	n--;
-
-	while(n){
-		if(i->next == NULL){
-			return NULL;
-		}
-		aux = aux->next;
-		n--;
-	}
-
-	return aux;
+	return i[n-1];
 }
 
 
 void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
-
-	struct timeval t, t2;
-	float microsegundos = 0;
-	gettimeofday(&t, NULL);
-
 
 	char buf[1024] = {0};
 	char *received_time = NULL;
@@ -157,9 +139,19 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 		fprintf(stream_out, "%s", adres(a_tcp->addr, "\t"));
 		fprintf(stream_out, "\t%s\n", received_time);
 	}else if(a_tcp->nids_state == NIDS_CLOSE || a_tcp->nids_state == NIDS_EXITING) {
-
+		
 		fprintf(stream_out, COLOUR_B_RED "#%d\tFIN\t" COLOUR_NONE, packets);
 		fprintf(stream_out, "%s\n", adres(a_tcp->addr, "\t"));
+		
+		char *clave_hash = hash_key(a_tcp);
+		g_hash_table_remove(table, clave_hash);
+		
+		if(clave_hash != NULL){
+			free(clave_hash);
+		}
+		
+		a_tcp->client.collect--;
+		a_tcp->server.collect--;
 
  	//LLEGA PAQUETE TCP CON PAYLOAD
 	}else if(a_tcp->nids_state == NIDS_DATA) { 	
@@ -203,7 +195,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				//peticion = hashvalue->last;
 				hashvalue->n_respuestas++;
 				//Obtener el par peticion/respuesta correspondiente
-				peticion = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
+				peticion = get_n_intercambio(hashvalue->array, hashvalue->n_respuestas, hashvalue->n_peticiones);
 				if(peticion==NULL){
 					fprintf(stream_out, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
 					fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
@@ -229,7 +221,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 				free(received_time);
 				return;
 			}
-			
+
 			g_hash_table_steal(table, hashkey);			
 			g_hash_table_insert(table, gkey, hashvalue);
 			free(hashkey);
@@ -285,7 +277,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 			//Si hay una entrada en la tabla hash
 			if(hashvalue != NULL){
 				//Obtener el par peticion/respuesta correspondiente
-				peticion = get_n_intercambio(hashvalue->peticiones, hashvalue->n_respuestas, hashvalue->n_peticiones);
+				peticion = get_n_intercambio(hashvalue->array, hashvalue->n_respuestas, hashvalue->n_peticiones);
 				if(peticion==NULL){
 					fprintf(stream_out, COLOUR_B_RED "ERROR OBTAINING REQUEST!! \t%d\t" COLOUR_NONE, packets);
 					fprintf(stream_out, "%s:%u\t", int_ntoa (a_tcp->addr.daddr), a_tcp->addr.dest);
@@ -353,10 +345,18 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 
 			}
 
+			//BETA
+			hashvalue->array =  (intercambio **) realloc(hashvalue->array, sizeof(intercambio*)*hashvalue->n_peticiones);
+			hashvalue->array[hashvalue->n_peticiones-1] = hashvalue->last;
+			//FIN BETA
+
 			peticion = hashvalue->last;
 			peticion->ts_request = nids_last_pcap_header->ts;
 			//Se copian los bytes de datos que han llegado
 			peticion->request = (char *) calloc(sizeof(char), hlf_server->count_new);
+			if(peticion->request == NULL){
+				fprintf(stderr, "ERROR WHILE ALLOCATING FOR REQUEST\n");
+			}
 			peticion->response = NULL;
 			//El numero de paquete
 			peticion->n_request_pkt = packets;
@@ -386,12 +386,7 @@ void tcp_callback (struct tcp_stream *a_tcp, void ** this_time_not_needed) {
 	//nids_discard(a_tcp, 0);
 	
 	//if(a_tcp->nids_state == NIDS_DATA){
-	
-		gettimeofday(&t2, NULL);
 
-		microsegundos = ((t2.tv_usec - t.tv_usec)  + ((t2.tv_sec - t.tv_sec) * 1000000.0f));
-		microsecs += microsegundos;
-		tiempos++;
 	//}
 
   return;
@@ -401,11 +396,7 @@ int main(int argc, char *argv[]){
 	
   // here we can alter libnids params, for instance:
 
-	nids_params.filename = argv[1];
-	nids_params.pcap_filter = argv[2];
-	nids_params.device = NULL; 
-	stream_out = stdout;
-	FILE *file_out = NULL;
+  FILE *file_out = NULL;
 
   if(argc<3){
   	how_to_use(argv[0]);
@@ -415,16 +406,36 @@ int main(int argc, char *argv[]){
   	stream_out = file_out;
   }
 
+	nids_params.filename = argv[1];
+	nids_params.pcap_filter = argv[2];
+	nids_params.device = NULL; 
+	stream_out = stdout;
+
+  //SIZE OF PCAP FILE
+  FILE* file_pcap = NULL;
+  file_pcap = fopen(argv[1], "rb");
+
+  struct timeval t, t2;  
+  gettimeofday(&t, NULL);
+  fseek(file_pcap, 0L, SEEK_END);
+  gettimeofday(&t2, NULL);
+  long microsegundos = ((t2.tv_usec - t.tv_usec)  + ((t2.tv_sec - t.tv_sec) * 1000000.0f));
+  long size = ftell(file_pcap);
+  fprintf(stderr, "SIZE: %ld, (%ld)\n", size, microsegundos);
+  rewind(file_pcap); 
+  fclose(file_pcap);
 
   table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, funcionLiberacion);
   if(table == NULL){
   	fprintf(stream_out, "Error al crear tabla hash.");
+  	fclose(file_out);
   	return -1;
   }
 
   if (!nids_init ()){
   	fprintf(stream_out,"Error nids_init. %s\n",nids_errbuf);
 	g_hash_table_destroy(table);
+	fclose(file_out);
   	return -2;
   }
 
@@ -438,7 +449,7 @@ int main(int argc, char *argv[]){
 
   g_hash_table_destroy(table);
 
-  fprintf(stderr, "Tiempo medio por callack: %lf\nTiempo total callbacks: %lf\nNumero de llamadas al callback: %ld\n", ((double)microsecs/(double)tiempos), microsecs, tiempos);
+  //fprintf(stderr, "Tiempo medio por callack: %lf\nTiempo total callbacks: %lf\nNumero de llamadas al callback: %ld\n", ((double)microsecs/(double)tiempos), microsecs, tiempos);
   
   if(file_out != NULL){
   	fclose(file_out);
@@ -469,7 +480,8 @@ void funcionLiberacion(gpointer data){
 
 	hashvalue->peticiones = NULL;
 	hashvalue->last = NULL;
-	
+	free(hashvalue->array);
+
 	free(hashvalue);
 
 	return;
