@@ -36,7 +36,7 @@ Dependency tree
       glibc——||——libnids
                    ||
           libpcap——||——libnet
-                   ||——libpcap
+                   ||
 
 If you want the shell line to install these packets use this one:
 sudo yum install kernel-devel kernel-headers make gcc glib2-devel libpcacp-devel
