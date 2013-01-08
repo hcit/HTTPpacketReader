@@ -48,7 +48,7 @@ static struct proc_node *udp_procs;
 
 struct proc_node *tcp_procs;
 static int linktype;
-static pcap_t *desc = NULL;
+pcap_t *desc = NULL;
 
 #ifdef HAVE_LIBGTHREAD_2_0
 
@@ -686,10 +686,12 @@ int nids_run()
 	strcpy(nids_errbuf, "Libnids not initialized");
 	return 0;
     }
+    nids_params.pcap_desc = desc;
     START_CAP_QUEUE_PROCESS_THREAD(); /* threading... */
     pcap_loop(desc, -1, (pcap_handler) nids_pcap_handler, 0);
     /* FIXME: will this code ever be called? Don't think so - mcree */
     STOP_CAP_QUEUE_PROCESS_THREAD(); 
+    nids_params.pcap_desc = NULL;
     nids_exit();
     return 0;
 }

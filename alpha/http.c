@@ -186,10 +186,10 @@ int http_parse_packet(char *tcp_payload, int length, http_packet *http_t){
 		
 		if(no_data == 0){
 			//Copy HTTP data
-			http->data = strdup(data);
-			if(http->data == NULL){
-				return -1;
-			}
+			// http->data = strdup(data);
+			// if(http->data == NULL){
+			// 	return -1;
+			// }
 		}
 	}
 	free(cadena);
