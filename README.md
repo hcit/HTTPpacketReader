@@ -51,21 +51,26 @@ I have created an installer. These are the instructions:
 5. ./hope and follow the instructions
 
 
-### Change log
+### Change log - alpha
  - Now it prints the request and response in pairs, as shows below, even if there is another request before the response for the first request:  <br/>
   ``#2 GET	192.168.1.136:58916	192.168.1.22:80	2012-09-26 17:06:41 662744``
   ``#3	DATA 192.168.1.236.22:80	192.168.1.136:58916 	2012-09-26 17:06:41 965271	0.302527``
  - Small changes
  - I've created an installer, see installation chapter above.
+ - Added trash collector (Every 10 seconds)
+ - Added progress bar (Every 0.5 seconds)
+ - Added array of (request/responses) instead of double linked list
+ - Prints timestamps in UTC
+ - Discards the response's data (Memory Optimization)
 
 ### Problems to solve
- - For some reason libnids library doesn't call the TCP callback function when a DATA packet arrives. <br/>
- I don't know if is it a PCAP file problem or just something I'm doing wrong. Still working on it.
+ - (SOLVED) For some reason libnids library doesn't call the TCP callback function when a DATA packet arrives. <br/>
+ I don't know if is it a PCAP file problem or just something I'm doing wrong. Still working on it. 
+ SOLVED: Is just because libnids discard packets with wrong checksum.
 
 ### To do
 
- - Change the name of the main executable.
  - Fix the above problems.
-
+ - Try the trash collector with big fat pcap files
 
 I got to lunch, see you later.
